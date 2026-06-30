@@ -1,0 +1,35 @@
+# Local secrets and environment
+.env
+.env.*
+!.env.example
+
+# Local agent/tooling state
+.agent/
+.agents/
+.claude/
+.codex/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+
+# Data, model outputs, and experiment artifacts
+data/
+artifacts/
+checkpoints/
+mlruns/
+outputs/
+
+# Local-only project planning notes
+docs/phase1_ddp_7_day_guide.md
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

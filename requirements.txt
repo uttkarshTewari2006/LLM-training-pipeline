@@ -1,0 +1,11 @@
+torch
+torchvision
+mlflow
+PyYAML
+tqdm
+numpy
+scikit-learn
+fastapi
+uvicorn[standard]
+prometheus-client
+evidently
