@@ -52,6 +52,12 @@ Run a local CPU smoke test:
 python src/training/train_ddp.py --epochs 1 --batch-size 32 --limit-train-batches 5 --limit-val-batches 2 --device cpu
 ```
 
+Run an offline CPU smoke test without downloading CIFAR-10:
+
+```bash
+python src/training/train_ddp.py --dataset fake --epochs 1 --batch-size 4 --num-workers 0 --limit-train-batches 1 --limit-val-batches 1 --device cpu
+```
+
 Run DDP on two GPUs:
 
 ```bash

@@ -18,6 +18,7 @@ from torchvision.models import resnet18
 
 
 def parse_args() -> argparse.Namespace:
+    # Personal note: keep CLI defaults modest so local smoke runs and DDP jobs use the same entrypoint.
     parser = argparse.ArgumentParser(description="CIFAR-10 training with optional PyTorch DDP.")
     parser.add_argument("--data-dir", default="data", help="Directory for dataset downloads.")
     parser.add_argument("--checkpoint-dir", default="checkpoints", help="Directory for saved checkpoints.")
@@ -27,6 +28,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--learning-rate", type=float, default=1e-3)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--dataset", choices=["cifar10", "fake"], default="cifar10")
+    parser.add_argument("--fake-train-size", type=int, default=256)
+    parser.add_argument("--fake-val-size", type=int, default=64)
     parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
     parser.add_argument("--limit-train-batches", type=int, default=0)
     parser.add_argument("--limit-val-batches", type=int, default=0)
@@ -35,10 +39,12 @@ def parse_args() -> argparse.Namespace:
 
 
 def is_distributed() -> bool:
+    # Personal note: torchrun sets WORLD_SIZE; a value above one means every rank must coordinate.
     return int(os.environ.get("WORLD_SIZE", "1")) > 1
 
 
 def setup_distributed() -> tuple[int, int, int]:
+    # Personal note: initialize process groups only for multi-rank launches and return single-rank defaults otherwise.
     if not is_distributed():
         return 0, 0, 1
 
@@ -50,11 +56,13 @@ def setup_distributed() -> tuple[int, int, int]:
 
 
 def cleanup_distributed() -> None:
+    # Personal note: guard teardown so normal single-process training can call this safely.
     if dist.is_available() and dist.is_initialized():
         dist.destroy_process_group()
 
 
 def set_seed(seed: int) -> None:
+    # Personal note: seed every RNG used here so repeated runs are easier to compare.
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -62,6 +70,7 @@ def set_seed(seed: int) -> None:
 
 
 def select_device(requested: str, local_rank: int) -> torch.device:
+    # Personal note: map each DDP worker to its local GPU, while still allowing CPU-only smoke tests.
     if requested == "cpu":
         return torch.device("cpu")
     if requested == "cuda" and not torch.cuda.is_available():
@@ -73,6 +82,7 @@ def select_device(requested: str, local_rank: int) -> torch.device:
 
 
 def build_model(num_classes: int = 10) -> nn.Module:
+    # Personal note: adapt ResNet-18 for CIFAR-10's 32x32 images by removing the ImageNet-style stem.
     model = resnet18(weights=None)
     model.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
     model.maxpool = nn.Identity()
@@ -81,6 +91,7 @@ def build_model(num_classes: int = 10) -> nn.Module:
 
 
 def build_loaders(args: argparse.Namespace, rank: int, world_size: int) -> tuple[DataLoader, DataLoader]:
+    # Personal note: use distributed samplers when needed so ranks see separate dataset shards.
     train_transform = transforms.Compose(
         [
             transforms.RandomCrop(32, padding=4),
@@ -96,18 +107,32 @@ def build_loaders(args: argparse.Namespace, rank: int, world_size: int) -> tuple
         ]
     )
 
-    train_dataset = torchvision.datasets.CIFAR10(
-        root=args.data_dir,
-        train=True,
-        download=True,
-        transform=train_transform,
-    )
-    val_dataset = torchvision.datasets.CIFAR10(
-        root=args.data_dir,
-        train=False,
-        download=True,
-        transform=eval_transform,
-    )
+    if args.dataset == "fake":
+        train_dataset = torchvision.datasets.FakeData(
+            size=args.fake_train_size,
+            image_size=(3, 32, 32),
+            num_classes=10,
+            transform=train_transform,
+        )
+        val_dataset = torchvision.datasets.FakeData(
+            size=args.fake_val_size,
+            image_size=(3, 32, 32),
+            num_classes=10,
+            transform=eval_transform,
+        )
+    else:
+        train_dataset = torchvision.datasets.CIFAR10(
+            root=args.data_dir,
+            train=True,
+            download=True,
+            transform=train_transform,
+        )
+        val_dataset = torchvision.datasets.CIFAR10(
+            root=args.data_dir,
+            train=False,
+            download=True,
+            transform=eval_transform,
+        )
 
     train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank) if world_size > 1 else None
     val_sampler = DistributedSampler(val_dataset, num_replicas=world_size, rank=rank, shuffle=False) if world_size > 1 else None
@@ -132,6 +157,7 @@ def build_loaders(args: argparse.Namespace, rank: int, world_size: int) -> tuple
 
 
 def reduce_mean(value: torch.Tensor, world_size: int) -> torch.Tensor:
+    # Personal note: average metric tensors across ranks so rank 0 logs global results, not local ones.
     if world_size == 1:
         return value
     dist.all_reduce(value, op=dist.ReduceOp.SUM)
@@ -147,6 +173,7 @@ def train_one_epoch(
     world_size: int,
     limit_batches: int,
 ) -> tuple[float, float]:
+    # Personal note: run one training pass and aggregate loss/accuracy in a DDP-compatible format.
     model.train()
     total_loss = 0.0
     total_correct = 0
@@ -185,6 +212,7 @@ def evaluate(
     world_size: int,
     limit_batches: int,
 ) -> tuple[float, float]:
+    # Personal note: mirror training metrics without gradient work so validation stays cheap and comparable.
     model.eval()
     total_loss = 0.0
     total_correct = 0
@@ -211,6 +239,7 @@ def evaluate(
 
 
 def save_checkpoint(model: nn.Module, optimizer: optim.Optimizer, epoch: int, checkpoint_dir: str) -> None:
+    # Personal note: unwrap DDP before saving so checkpoints can be reloaded in single-process jobs.
     Path(checkpoint_dir).mkdir(parents=True, exist_ok=True)
     model_to_save = model.module if isinstance(model, DDP) else model
     torch.save(
@@ -224,6 +253,7 @@ def save_checkpoint(model: nn.Module, optimizer: optim.Optimizer, epoch: int, ch
 
 
 def main() -> None:
+    # Personal note: rank 0 owns logging/checkpoint side effects; every rank still trains and validates.
     args = parse_args()
     rank, local_rank, world_size = setup_distributed()
     set_seed(args.seed + rank)
@@ -247,6 +277,7 @@ def main() -> None:
                 "weight_decay": args.weight_decay,
                 "world_size": world_size,
                 "device": str(device),
+                "dataset": args.dataset,
             }
         )
 
