@@ -8,6 +8,7 @@
 .agents/
 .claude/
 .codex/
+.runtime/
 
 # Python
 __pycache__/

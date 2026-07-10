@@ -22,6 +22,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="CIFAR-10 training with optional PyTorch DDP.")
     parser.add_argument("--data-dir", default="data", help="Directory for dataset downloads.")
     parser.add_argument("--checkpoint-dir", default="checkpoints", help="Directory for saved checkpoints.")
+    parser.add_argument("--resume", type=str, default=None, help="Path to checkpoint to resume from.")
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--num-workers", type=int, default=2)
@@ -267,6 +268,16 @@ def main() -> None:
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
 
+    start_epoch = 0
+    if args.resume and Path(args.resume).exists():
+        ckpt = torch.load(args.resume, map_location=device)
+        model_to_load = model.module if isinstance(model, DDP) else model
+        model_to_load.load_state_dict(ckpt["model_state_dict"])
+        optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+        start_epoch = ckpt["epoch"]
+        if rank == 0:
+            print(f"Resumed from epoch {start_epoch}")
+
     run_context = mlflow.start_run(run_name="phase1-ddp-cifar10") if rank == 0 and not args.disable_mlflow else None
     if rank == 0 and not args.disable_mlflow:
         mlflow.log_params(
@@ -282,7 +293,7 @@ def main() -> None:
         )
 
     try:
-        for epoch in range(args.epochs):
+        for epoch in range(start_epoch, args.epochs):
             if isinstance(train_loader.sampler, DistributedSampler):
                 train_loader.sampler.set_epoch(epoch)
 

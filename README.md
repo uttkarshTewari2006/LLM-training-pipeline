@@ -14,7 +14,7 @@ Core goals:
 
 - Train a CIFAR-10 image classifier with one process per GPU.
 - Support CPU-only and single-GPU development locally.
-- Support two-GPU execution on Kaggle with `torchrun --nproc_per_node=2`.
+
 - Save checkpoints only from rank 0.
 - Keep the training script cloud-agnostic through environment variables.
 
@@ -52,17 +52,37 @@ Run a local CPU smoke test:
 python src/training/train_ddp.py --epochs 1 --batch-size 32 --limit-train-batches 5 --limit-val-batches 2 --device cpu
 ```
 
-Run an offline CPU smoke test without downloading CIFAR-10:
-
-```bash
-python src/training/train_ddp.py --dataset fake --epochs 1 --batch-size 4 --num-workers 0 --limit-train-batches 1 --limit-val-batches 1 --device cpu
-```
-
 Run DDP on two GPUs:
 
 ```bash
 torchrun --nproc_per_node=2 src/training/train_ddp.py --epochs 5 --batch-size 128 --device cuda
 ```
+
+
+## Resuming a failed run
+
+If training is interrupted, the latest checkpoint is saved at `checkpoints/latest.pt` 
+after each epoch. To resume:
+
+1. Ensure the checkpoint exists:
+   ls -lh checkpoints/latest.pt
+
+2. Restart training with the same command and pass the checkpoint path:
+
+   ```bash
+   python src/training/train_ddp.py --resume checkpoints/latest.pt
+   ```
+
+   Or manually load via:
+
+   ckpt = torch.load("checkpoints/latest.pt")
+   model.load_state_dict(ckpt["model_state_dict"])
+   optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+   start_epoch = ckpt["epoch"]  # resume loop from here
+
+3. On Kaggle specifically: re-run the torchrun cell. The session retains 
+   /kaggle/working/ across cell executions within the same session, so the 
+   checkpoint survives as long as the session is alive.
 
 ## Repository Layout
 
