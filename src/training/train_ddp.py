@@ -1,6 +1,7 @@
 import argparse
 import os
 import random
+import time
 from pathlib import Path
 
 import mlflow
@@ -173,9 +174,10 @@ def train_one_epoch(
     device: torch.device,
     world_size: int,
     limit_batches: int,
-) -> tuple[float, float]:
+) -> tuple[float, float, float]:
     # Personal note: run one training pass and aggregate loss/accuracy in a DDP-compatible format.
     model.train()
+    start_time = time.time()
     total_loss = 0.0
     total_correct = 0
     total_seen = 0
@@ -201,7 +203,8 @@ def train_one_epoch(
     metrics = reduce_mean(metrics, world_size)
     loss = metrics[0].item() / max(metrics[2].item(), 1)
     accuracy = metrics[1].item() / max(metrics[2].item(), 1)
-    return loss, accuracy
+    throughput = metrics[2].item() * world_size / max(time.time() - start_time, 1e-9)
+    return loss, accuracy, throughput
 
 
 @torch.no_grad()
@@ -297,7 +300,7 @@ def main() -> None:
             if isinstance(train_loader.sampler, DistributedSampler):
                 train_loader.sampler.set_epoch(epoch)
 
-            train_loss, train_acc = train_one_epoch(
+            train_loss, train_acc, throughput = train_one_epoch(
                 model,
                 train_loader,
                 criterion,
@@ -329,6 +332,7 @@ def main() -> None:
                             "train_accuracy": train_acc,
                             "val_loss": val_loss,
                             "val_accuracy": val_acc,
+                            "throughput_samples_per_sec": throughput,
                         },
                         step=epoch + 1,
                     )
