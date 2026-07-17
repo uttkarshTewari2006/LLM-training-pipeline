@@ -1,22 +1,45 @@
 # LLM Training Pipeline
 
-Reliable ML training platform scaffold focused on distributed PyTorch training, experiment tracking, feature serving, model monitoring, and SRE-style operational practices.
+Reliable ML training platform scaffold focused on distributed PyTorch training,
+experiment tracking, recoverability, and SRE-style operational practices.
 
-## Project Direction
-
-This project is framed as an ML platform, not just a model training script. The initial model is intentionally small so the engineering work can focus on repeatable training, observability, recoverability, and deployment hygiene.
+The first phase intentionally uses a small CIFAR-10 classifier. The model is not
+the point; the point is a repeatable training path that can run locally, scale to
+single-node multi-GPU execution, recover from interruption, and emit useful
+training signals.
 
 ## Phase 1: Distributed Training
 
-Phase 1 starts with PyTorch Distributed Data Parallel (DDP) using `torchrun`.
+Phase 1 implements a PyTorch Distributed Data Parallel (DDP) training entrypoint
+launched with `torchrun`.
 
-Core goals:
+What this phase proves:
 
-- Train a CIFAR-10 image classifier with one process per GPU.
-- Support CPU-only and single-GPU development locally.
+- A single training script supports CPU, single-GPU, and single-node multi-GPU
+  runs.
+- `DistributedSampler` shards training and validation data across ranks.
+- DDP synchronizes gradients during backpropagation.
+- Rank 0 owns shared side effects: user-visible logs, checkpoints, and MLflow
+  metric writes.
+- Checkpoints are reloadable from single-process or distributed runs.
+- Local artifacts, datasets, secrets, checkpoints, and planning notes stay out
+  of git.
 
-- Save checkpoints only from rank 0.
-- Keep the training script cloud-agnostic through environment variables.
+## Architecture Summary
+
+```text
+torchrun
+  -> rank 0 worker -> device 0 -> training shard -> logs, MLflow, checkpoint
+  -> rank 1 worker -> device 1 -> training shard -> training only
+
+DistributedSampler assigns each worker a distinct data shard.
+DDP all-reduces gradients during loss.backward().
+Rank 0 writes checkpoints to checkpoints/latest.pt after each epoch.
+```
+
+The current implementation is single-node DDP. It is designed to be cloud-agnostic
+and easy to run on a local machine or a Kaggle 2x T4 notebook, but it does not
+claim multi-node production orchestration yet.
 
 ## Tech Stack
 
@@ -24,9 +47,8 @@ Core goals:
 - PyTorch and TorchVision
 - PyTorch Distributed Data Parallel
 - MLflow for experiment tracking
-- Docker Compose for local platform services
-- FastAPI for future inference and feature APIs
-- Evidently AI for future drift monitoring
+- Docker Compose for local MLflow infrastructure in later phases
+- FastAPI and Evidently AI dependencies reserved for future platform phases
 
 ## Quick Start
 
@@ -46,61 +68,90 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-Run a local CPU smoke test:
+Run a local CPU smoke test without downloading CIFAR-10:
 
 ```bash
-python src/training/train_ddp.py --epochs 1 --batch-size 32 --limit-train-batches 5 --limit-val-batches 2 --device cpu
+python src/training/train_ddp.py --dataset fake --epochs 1 --batch-size 32 --limit-train-batches 5 --limit-val-batches 2 --device cpu --disable-mlflow
 ```
 
-Run DDP on two GPUs:
+Run a local CPU DDP smoke test with two worker processes:
 
 ```bash
-torchrun --nproc_per_node=2 src/training/train_ddp.py --epochs 5 --batch-size 128 --device cuda
+torchrun --nproc_per_node=2 src/training/train_ddp.py --dataset fake --epochs 1 --batch-size 32 --limit-train-batches 5 --limit-val-batches 2 --device cpu --disable-mlflow
 ```
 
+On Windows, some PyTorch builds do not include libuv support for the local
+`torchrun` rendezvous store. If that environment error appears, use WSL, Linux,
+or the Kaggle command below for the DDP smoke test.
 
-## Resuming a failed run
+Run CIFAR-10 locally:
 
-If training is interrupted, the latest checkpoint is saved at `checkpoints/latest.pt` 
-after each epoch. To resume:
+```bash
+python src/training/train_ddp.py --epochs 1 --batch-size 64 --limit-train-batches 20 --limit-val-batches 5 --device cpu
+```
 
-1. Ensure the checkpoint exists:
-   ls -lh checkpoints/latest.pt
+Run on Kaggle 2x T4:
 
-2. Restart training with the same command and pass the checkpoint path:
+```bash
+pip install -r requirements.txt
+torchrun --nproc_per_node=2 src/training/train_ddp.py --epochs 5 --batch-size 128 --device cuda --checkpoint-dir checkpoints/kaggle-ddp
+```
 
-   ```bash
-   python src/training/train_ddp.py --resume checkpoints/latest.pt
-   ```
+## Failure Recovery
 
-   Or manually load via:
+Rank 0 saves the latest checkpoint after each epoch. By default the checkpoint is
+written to:
 
-   ckpt = torch.load("checkpoints/latest.pt")
-   model.load_state_dict(ckpt["model_state_dict"])
-   optimizer.load_state_dict(ckpt["optimizer_state_dict"])
-   start_epoch = ckpt["epoch"]  # resume loop from here
+```text
+checkpoints/latest.pt
+```
 
-3. On Kaggle specifically: re-run the torchrun cell. The session retains 
-   /kaggle/working/ across cell executions within the same session, so the 
-   checkpoint survives as long as the session is alive.
+To resume a failed run:
+
+```bash
+python src/training/train_ddp.py --resume checkpoints/latest.pt
+```
+
+The checkpoint contains:
+
+- Completed epoch number
+- Model state dict
+- Optimizer state dict
+
+For DDP jobs, restart with the same `torchrun` shape and pass the same
+`--resume` path. On Kaggle, `/kaggle/working` persists during the active session,
+so a notebook cell can be rerun with the checkpoint path as long as the session
+has not been reset.
+
+## SRE Features
+
+- Reproducible CLI entrypoint for local and Kaggle runs.
+- Rank-aware side effects prevent duplicate checkpoints and duplicate metric
+  writes.
+- Checkpointing provides a simple recovery path after interrupted training.
+- MLflow logging records loss, accuracy, throughput, device, and world size.
+- `.gitignore` excludes `.env`, local data, checkpoints, MLflow runs, runtime
+  files, and the private learning guide.
 
 ## Repository Layout
 
 ```text
 .
-├── configs/
-│   └── train_cifar10.yaml
-├── docs/
-│   └── architecture.md
-├── scripts/
-│   └── kaggle_train.sh
-├── src/
-│   └── training/
-│       └── train_ddp.py
-├── .env.example
-├── docker-compose.yml
-├── requirements.txt
-└── README.md
+|-- configs/
+|   `-- train_cifar10.yaml
+|-- docs/
+|   |-- architecture.md
+|   `-- phase1_demo.md
+|-- scripts/
+|   `-- kaggle_train.sh
+|-- src/
+|   `-- training/
+|       `-- train_ddp.py
+|-- .env.example
+|-- docker-compose.yml
+|-- requirements.txt
+`-- README.md
 ```
 
-The local Phase 1 learning guide is intentionally ignored by git at `docs/phase1_ddp_7_day_guide.md`.
+The local Phase 1 learning guide is intentionally ignored by git at
+`docs/phase1_ddp_7_day_guide.md`.
