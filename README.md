@@ -97,6 +97,39 @@ pip install -r requirements.txt
 torchrun --nproc_per_node=2 src/training/train_ddp.py --epochs 5 --batch-size 128 --device cuda --checkpoint-dir checkpoints/kaggle-ddp
 ```
 
+## Phase 1 End-to-End Results
+
+Full CIFAR-10 DDP training was completed on July 17, 2026 with two workers,
+batch size 128, MLflow tracking enabled, and a rank-0 checkpoint written at the
+end of each epoch.
+
+```text
+epoch=1 train_loss=1.3795 train_acc=0.4957 val_loss=1.3988 val_acc=0.5472
+epoch=2 train_loss=0.9010 train_acc=0.6797 val_loss=1.1010 val_acc=0.6359
+epoch=3 train_loss=0.7061 train_acc=0.7507 val_loss=0.8482 val_acc=0.7114
+epoch=4 train_loss=0.6023 train_acc=0.7891 val_loss=0.9164 val_acc=0.7068
+epoch=5 train_loss=0.5202 train_acc=0.8189 val_loss=0.7675 val_acc=0.7515
+```
+
+Final MLflow run summary:
+
+```text
+run_id: a19602c69090406eb74bc2d047b24797
+status: FINISHED
+world_size: 2
+batch_size: 128
+train_loss: 0.520242
+val_loss: 0.767518
+train_accuracy: 0.81892
+val_accuracy: 0.7515
+```
+
+Checkpoint artifact:
+
+```text
+latest.pt 128M
+```
+
 ## Failure Recovery
 
 Rank 0 saves the latest checkpoint after each epoch. By default the checkpoint is
