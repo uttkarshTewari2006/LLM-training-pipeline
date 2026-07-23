@@ -256,6 +256,15 @@ def save_checkpoint(model: nn.Module, optimizer: optim.Optimizer, epoch: int, ch
     )
 
 
+def configure_mlflow() -> None:
+    tracking_uri = os.environ.get("MLFLOW_TRACKING_URI")
+    experiment_name = os.environ.get("MLFLOW_EXPERIMENT_NAME", "ddp-cifar10-platform")
+
+    if tracking_uri:
+        mlflow.set_tracking_uri(tracking_uri)
+    mlflow.set_experiment(experiment_name)
+
+
 def main() -> None:
     # Personal note: rank 0 owns logging/checkpoint side effects; every rank still trains and validates.
     args = parse_args()
@@ -281,7 +290,9 @@ def main() -> None:
         if rank == 0:
             print(f"Resumed from epoch {start_epoch}")
 
-    run_context = mlflow.start_run(run_name="phase1-ddp-cifar10") if rank == 0 and not args.disable_mlflow else None
+    if rank == 0 and not args.disable_mlflow:
+        configure_mlflow()
+    run_context = mlflow.start_run(run_name="phase2-ddp-cifar10") if rank == 0 and not args.disable_mlflow else None
     if rank == 0 and not args.disable_mlflow:
         mlflow.log_params(
             {
@@ -326,6 +337,7 @@ def main() -> None:
                 )
                 save_checkpoint(model, optimizer, epoch + 1, args.checkpoint_dir)
                 if not args.disable_mlflow:
+                    mlflow.log_artifact(str(Path(args.checkpoint_dir) / "latest.pt"), artifact_path="checkpoints")
                     mlflow.log_metrics(
                         {
                             "train_loss": train_loss,

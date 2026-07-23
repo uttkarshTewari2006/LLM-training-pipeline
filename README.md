@@ -41,13 +41,27 @@ The current implementation is single-node DDP. It is designed to be cloud-agnost
 and easy to run on a local machine or a Kaggle 2x T4 notebook, but it does not
 claim multi-node production orchestration yet.
 
+## Phase 2: Durable Experiment Tracking
+
+Phase 2 adds a local MLflow tracking stack backed by Postgres for run metadata
+and MinIO for model artifacts.
+
+Day 2 implementation includes:
+
+- Docker Compose services for Postgres, MinIO, MLflow, and artifact bucket
+  bootstrap.
+- A custom MLflow image with S3 and Postgres client dependencies.
+- Environment-driven MLflow tracking URI and experiment selection.
+- Checkpoint artifact uploads from rank 0 to MLflow.
+- A local validation guide at `docs/phase2_mlflow_day2.md`.
+
 ## Tech Stack
 
 - Python 3.10+
 - PyTorch and TorchVision
 - PyTorch Distributed Data Parallel
 - MLflow for experiment tracking
-- Docker Compose for local MLflow infrastructure in later phases
+- Docker Compose for local MLflow infrastructure
 - FastAPI and Evidently AI dependencies reserved for future platform phases
 
 ## Quick Start
@@ -89,6 +103,23 @@ Run CIFAR-10 locally:
 ```bash
 python src/training/train_ddp.py --epochs 1 --batch-size 64 --limit-train-batches 20 --limit-val-batches 5 --device cpu
 ```
+
+Start the local MLflow tracking stack:
+
+```bash
+docker compose up -d postgres minio minio-create-bucket mlflow
+```
+
+Run training against the stack:
+
+```bash
+export MLFLOW_TRACKING_URI=http://localhost:5000
+export MLFLOW_EXPERIMENT_NAME=ddp-cifar10-platform
+python src/training/train_ddp.py --dataset fake --epochs 1 --batch-size 32 --limit-train-batches 5 --limit-val-batches 2 --device cpu
+```
+
+The MLflow UI runs at `http://localhost:5000`, and the MinIO console runs at
+`http://localhost:9001`.
 
 Run on Kaggle 2x T4:
 
@@ -174,7 +205,11 @@ has not been reset.
 |   `-- train_cifar10.yaml
 |-- docs/
 |   |-- architecture.md
+|   |-- phase2_mlflow_day2.md
 |   `-- phase1_demo.md
+|-- infra/
+|   `-- mlflow/
+|       `-- Dockerfile
 |-- scripts/
 |   `-- kaggle_train.sh
 |-- src/

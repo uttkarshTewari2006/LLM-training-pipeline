@@ -28,6 +28,10 @@ outputs/
 
 # Local-only project planning notes
 docs/phase1_ddp_7_day_guide.md
+docs/phase2_mlflow_3_day_guide.md
+docs/phase3_model_serving_3_day_guide.md
+docs/phase4_monitoring_3_day_guide.md
+docs/phase5_platform_hardening_3_day_guide.md
 
 # OS/editor
 .DS_Store

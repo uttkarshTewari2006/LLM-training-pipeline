@@ -22,9 +22,25 @@ DDP synchronizes gradients during backward pass.
 Rank 0 owns user-visible side effects such as checkpoints.
 ```
 
+## Phase 2 Tracking Flow
+
+```text
+rank 0 training process
+  -> MLflow tracking API
+     -> Postgres stores run metadata, params, and metrics
+     -> MLflow artifact proxy writes checkpoints to MinIO
+```
+
+The training process reads `MLFLOW_TRACKING_URI` and
+`MLFLOW_EXPERIMENT_NAME` from the environment. Rank 0 starts the MLflow run,
+logs training parameters and metrics, saves `checkpoints/latest.pt`, and uploads
+that checkpoint as an MLflow artifact.
+
 ## SRE Signals
 
 - Reproducible entrypoints for local and cloud runs.
 - Checkpointing for recovery after interrupted training.
 - Separation between local-only data/artifacts and committed source.
+- Durable experiment metadata and artifact storage through MLflow, Postgres,
+  and MinIO.
 - Planned observability through MLflow, Prometheus, Grafana, and drift reports.
