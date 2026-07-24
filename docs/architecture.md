@@ -36,6 +36,21 @@ The training process reads `MLFLOW_TRACKING_URI` and
 logs training parameters and metrics, saves `checkpoints/latest.pt`, and uploads
 that checkpoint as an MLflow artifact.
 
+## Phase 3 Serving Flow
+
+```text
+client
+  -> FastAPI /predict
+     -> CIFAR-10 preprocessing
+     -> ResNet-18 checkpoint loaded at startup
+     -> class id, label, confidence, and top-k probabilities
+```
+
+The serving API loads a checkpoint from `MODEL_CHECKPOINT_PATH`, defaulting to
+`checkpoints/latest.pt`. The model architecture is reused from training so
+training checkpoints and serving artifacts stay compatible. Input preprocessing
+uses the same CIFAR-10 normalization as validation.
+
 ## SRE Signals
 
 - Reproducible entrypoints for local and cloud runs.
@@ -43,4 +58,5 @@ that checkpoint as an MLflow artifact.
 - Separation between local-only data/artifacts and committed source.
 - Durable experiment metadata and artifact storage through MLflow, Postgres,
   and MinIO.
+- A FastAPI serving boundary for loading a checkpoint and returning predictions.
 - Planned observability through MLflow, Prometheus, Grafana, and drift reports.

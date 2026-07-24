@@ -55,6 +55,22 @@ Day 2 implementation includes:
 - Checkpoint artifact uploads from rank 0 to MLflow.
 - A local validation guide at `docs/phase2_mlflow_day2.md`.
 
+Day 3 final validation includes a completed MLflow-logged CIFAR-10 run with the
+tracking database exported under `mlflow-logged-runs-db/`.
+
+## Phase 3: Model Serving API
+
+Phase 3 turns the trained checkpoint into a callable FastAPI service.
+
+What this phase proves:
+
+- The service loads a training checkpoint at startup.
+- `/health` reports model loading status, checkpoint path, epoch, and device.
+- `/predict` accepts CIFAR-10-shaped image arrays and returns class id, label,
+  confidence, and top-k probabilities.
+- Serving preprocessing matches the training validation normalization.
+- API tests cover health, prediction response shape, and input validation.
+
 ## Tech Stack
 
 - Python 3.10+
@@ -121,6 +137,59 @@ python src/training/train_ddp.py --dataset fake --epochs 1 --batch-size 32 --lim
 The MLflow UI runs at `http://localhost:5000`, and the MinIO console runs at
 `http://localhost:9001`.
 
+Run the model serving API:
+
+```bash
+export MODEL_CHECKPOINT_PATH=checkpoints/latest.pt
+uvicorn src.serving.app:app --host 0.0.0.0 --port 8000
+```
+
+On Windows PowerShell:
+
+```powershell
+$env:MODEL_CHECKPOINT_PATH = "checkpoints/latest.pt"
+uvicorn src.serving.app:app --host 0.0.0.0 --port 8000
+```
+
+Check health:
+
+```bash
+curl http://localhost:8000/health
+```
+
+Run a prediction smoke request:
+
+```bash
+python scripts/smoke_predict.py
+```
+
+Prediction request shape:
+
+```json
+{
+  "image": "32x32x3 numeric array",
+  "top_k": 3
+}
+```
+
+The full `image` value must be either `[32, 32, 3]` channel-last pixels or
+`[3, 32, 32]` channel-first pixels. Pixel values may be `0..1` floats or
+`0..255` integer-like values.
+
+Prediction response shape:
+
+```json
+{
+  "class_id": 6,
+  "class_label": "frog",
+  "confidence": 0.21,
+  "probabilities": [
+    {"class_id": 6, "class_label": "frog", "confidence": 0.21}
+  ],
+  "model_epoch": 5
+}
+```
+
 Run on Kaggle 2x T4:
 
 ```bash
@@ -161,6 +230,67 @@ Checkpoint artifact:
 latest.pt 128M
 ```
 
+## Phase 2 End-to-End Results
+
+Full CIFAR-10 training was logged to MLflow on July 23, 2026. The exported
+tracking database is stored at `mlflow-logged-runs-db/mlflow.db`.
+
+```text
+epoch=1 train_loss=2.3538 train_acc=0.1734 val_loss=2.4878 val_acc=0.1547 throughput=19.92 samples/sec
+epoch=2 train_loss=2.0306 train_acc=0.2703 val_loss=3.9170 val_acc=0.1313 throughput=20.18 samples/sec
+```
+
+Final MLflow run summary:
+
+```text
+run_id: fba131b9424f4855ac97b0c217eaf799
+run_name: phase2-ddp-cifar10
+status: FINISHED
+source_commit: d2995096a6a5a55a5b10e7aae24955776c6371b0
+world_size: 1
+device: cpu
+dataset: cifar10
+epochs: 2
+batch_size: 128
+train_loss: 2.030552
+val_loss: 3.917007
+train_accuracy: 0.2703125
+val_accuracy: 0.13125
+throughput_samples_per_sec: 20.175143
+```
+
+This validates Phase 2's final path: the trainer can create a named MLflow run,
+record parameters and metrics, and persist the run metadata in a reloadable
+tracking database.
+
+## Phase 3 Serving Demo
+
+The serving API was validated locally against `checkpoints/latest.pt`.
+
+```text
+GET /health -> status=healthy model_loaded=true checkpoint_path=checkpoints/latest.pt model_epoch=1
+```
+
+Representative prediction response:
+
+```json
+{
+  "class_id": 1,
+  "class_label": "automobile",
+  "confidence": 0.10819769650697708,
+  "probabilities": [
+    {"class_id": 1, "class_label": "automobile", "confidence": 0.10819769650697708},
+    {"class_id": 8, "class_label": "ship", "confidence": 0.1043490469455719},
+    {"class_id": 4, "class_label": "deer", "confidence": 0.1031981110572815}
+  ],
+  "model_epoch": 1
+}
+```
+
+Phase 3 connects training to production-style usage: clients call a stable API
+contract and do not need to know how the model was trained, checkpointed, or
+loaded.
+
 ## Failure Recovery
 
 Rank 0 saves the latest checkpoint after each epoch. By default the checkpoint is
@@ -194,6 +324,8 @@ has not been reset.
   writes.
 - Checkpointing provides a simple recovery path after interrupted training.
 - MLflow logging records loss, accuracy, throughput, device, and world size.
+- FastAPI serving exposes health and prediction endpoints for a trained
+  checkpoint.
 - `.gitignore` excludes `.env`, local data, checkpoints, MLflow runs, runtime
   files, and the private learning guide.
 
@@ -210,11 +342,20 @@ has not been reset.
 |-- infra/
 |   `-- mlflow/
 |       `-- Dockerfile
+|-- mlflow-logged-runs-db/
+|   `-- mlflow.db
 |-- scripts/
-|   `-- kaggle_train.sh
+|   |-- kaggle_train.sh
+|   `-- smoke_predict.py
 |-- src/
+|   |-- serving/
+|   |   |-- __init__.py
+|   |   |-- app.py
+|   |   `-- model.py
 |   `-- training/
 |       `-- train_ddp.py
+|-- tests/
+|   `-- test_serving_api.py
 |-- .env.example
 |-- docker-compose.yml
 |-- requirements.txt

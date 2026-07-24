@@ -7,5 +7,7 @@ numpy
 scikit-learn
 fastapi
 uvicorn[standard]
+httpx
+pytest
 prometheus-client
 evidently
