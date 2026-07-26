@@ -1,12 +1,30 @@
-# LLM Training Pipeline
+# ML Training Pipeline
 
 Reliable ML training platform scaffold focused on distributed PyTorch training,
 experiment tracking, recoverability, and SRE-style operational practices.
 
-The first phase intentionally uses a small CIFAR-10 classifier. The model is not
-the point; the point is a repeatable training path that can run locally, scale to
-single-node multi-GPU execution, recover from interruption, and emit useful
-training signals.
+The project uses a small CIFAR-10 classifier so the platform work is easy to
+run and inspect. The model is not the point; the point is a repeatable path from
+training to tracking, serving, and monitoring with clear local validation.
+
+## Project Snapshot
+
+- Distributed PyTorch training with CPU, single-GPU, and single-node multi-GPU
+  support.
+- Checkpoint recovery for interrupted runs.
+- MLflow tracking with Postgres metadata and MinIO artifact storage.
+- FastAPI serving for a trained checkpoint.
+- Evidently drift reporting over reference and live-like image feature batches.
+- Focused tests covering serving and monitoring paths.
+
+## Results Summary
+
+| Stage | Outcome | Validation |
+| --- | --- | --- |
+| Phase 1 | DDP CIFAR-10 training completed with a reloadable rank-0 checkpoint. | 5 epochs, final validation accuracy `0.7515`, checkpoint `latest.pt` at `128M`. |
+| Phase 2 | MLflow captured training params, metrics, throughput, and checkpoint artifacts. | Run `fba131b9424f4855ac97b0c217eaf799`, exported DB at `mlflow-logged-runs-db/mlflow.db`. |
+| Phase 3 | FastAPI served predictions from `checkpoints/latest.pt`. | `/health` returned healthy and `/predict` returned top-3 CIFAR-10 probabilities. |
+| Phase 4 | Evidently generated a local drift report for reference vs live-like image features. | `64` reference rows, `64` current rows, `11` features, full test suite `7 passed`. |
 
 ## Phase 1: Distributed Training
 
@@ -71,6 +89,16 @@ What this phase proves:
 - Serving preprocessing matches the training validation normalization.
 - API tests cover health, prediction response shape, and input validation.
 
+## Phase 4: Monitoring And Drift Reports
+
+Phase 4 adds a local monitoring path for comparing a reference batch against a
+live-like batch after the model has a serving boundary.
+
+The monitoring scripts summarize CIFAR-10-shaped images into tabular features
+such as channel means, channel standard deviations, brightness, dark pixel share,
+bright pixel share, and a saturation proxy. Evidently compares the reference and
+current feature tables and writes report artifacts under `outputs/monitoring/`.
+
 ## Tech Stack
 
 - Python 3.10+
@@ -78,7 +106,8 @@ What this phase proves:
 - PyTorch Distributed Data Parallel
 - MLflow for experiment tracking
 - Docker Compose for local MLflow infrastructure
-- FastAPI and Evidently AI dependencies reserved for future platform phases
+- FastAPI for serving
+- Evidently AI for local drift reports
 
 ## Quick Start
 
@@ -172,6 +201,32 @@ Prediction request shape:
 }
 ```
 
+Build monitoring reference/current inputs:
+
+```bash
+python src/monitoring/build_reference.py
+```
+
+Generate a drift report:
+
+```bash
+python src/monitoring/generate_drift_report.py
+```
+
+Monitoring outputs are local artifacts and are ignored by git:
+
+```text
+outputs/monitoring/reference_features.csv
+outputs/monitoring/current_features.csv
+outputs/monitoring/drift_report.html
+outputs/monitoring/drift_report.json
+outputs/monitoring/drift_summary.json
+```
+
+The report answers whether the current batch still resembles the reference batch
+on simple image summary statistics. It is an early warning signal for
+investigation; it does not prove that model accuracy changed.
+
 The full `image` value must be either `[32, 32, 3]` channel-last pixels or
 `[3, 32, 32]` channel-first pixels. Pixel values may be `0..1` floats or
 `0..255` integer-like values.
@@ -263,7 +318,7 @@ This validates Phase 2's final path: the trainer can create a named MLflow run,
 record parameters and metrics, and persist the run metadata in a reloadable
 tracking database.
 
-## Phase 3 Serving Demo
+## Phase 3 End-to-End Results
 
 The serving API was validated locally against `checkpoints/latest.pt`.
 
@@ -290,6 +345,48 @@ Representative prediction response:
 Phase 3 connects training to production-style usage: clients call a stable API
 contract and do not need to know how the model was trained, checkpointed, or
 loaded.
+
+## Phase 4 End-to-End Results
+
+The local monitoring path generates deterministic reference and live-like
+batches, then writes an Evidently HTML report and JSON summaries under
+`outputs/monitoring/`.
+
+```text
+python src/monitoring/build_reference.py
+python src/monitoring/generate_drift_report.py
+```
+
+Validated local report output:
+
+```text
+reference_rows: 64
+current_rows: 64
+feature_count: 11
+html_report_path: outputs/monitoring/drift_report.html
+json_report_path: outputs/monitoring/drift_report.json
+```
+
+Largest mean shifts from the generated summary:
+
+```text
+red_mean: 0.054777
+saturation_proxy_mean: 0.049361
+blue_mean: -0.033604
+bright_pixel_share: 0.029022
+green_std: 0.021630
+```
+
+Validation:
+
+```text
+pytest tests/test_monitoring.py -q -> 4 passed
+pytest -q -> 7 passed
+```
+
+The live-like batch intentionally changes color and contrast statistics so the
+report has a visible signal to inspect. In a real serving workflow, the current
+batch would come from recent prediction traffic or batch scoring inputs.
 
 ## Failure Recovery
 
@@ -326,6 +423,7 @@ has not been reset.
 - MLflow logging records loss, accuracy, throughput, device, and world size.
 - FastAPI serving exposes health and prediction endpoints for a trained
   checkpoint.
+- Evidently drift reports compare reference and live-like image feature batches.
 - `.gitignore` excludes `.env`, local data, checkpoints, MLflow runs, runtime
   files, and the private learning guide.
 
@@ -348,6 +446,12 @@ has not been reset.
 |   |-- kaggle_train.sh
 |   `-- smoke_predict.py
 |-- src/
+|   |-- monitoring/
+|   |   |-- __init__.py
+|   |   |-- build_reference.py
+|   |   |-- data.py
+|   |   |-- generate_drift_report.py
+|   |   `-- report.py
 |   |-- serving/
 |   |   |-- __init__.py
 |   |   |-- app.py
@@ -355,6 +459,8 @@ has not been reset.
 |   `-- training/
 |       `-- train_ddp.py
 |-- tests/
+|   |-- conftest.py
+|   |-- test_monitoring.py
 |   `-- test_serving_api.py
 |-- .env.example
 |-- docker-compose.yml

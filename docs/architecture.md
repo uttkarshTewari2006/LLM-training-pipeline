@@ -7,8 +7,8 @@ The project is designed as a small but realistic ML platform:
 1. Distributed training runs with PyTorch DDP and `torchrun`.
 2. Experiments are tracked in MLflow.
 3. Model artifacts are stored outside the training process.
-4. Future feature serving separates offline feature generation from online lookup.
-5. Future monitoring compares reference and live-like data with Evidently AI.
+4. Monitoring compares reference and live-like data with Evidently AI.
+5. Future feature serving separates offline feature generation from online lookup.
 
 ## Phase 1 Runtime Flow
 
@@ -51,6 +51,21 @@ The serving API loads a checkpoint from `MODEL_CHECKPOINT_PATH`, defaulting to
 training checkpoints and serving artifacts stay compatible. Input preprocessing
 uses the same CIFAR-10 normalization as validation.
 
+## Phase 4 Monitoring Flow
+
+```text
+reference image batch
+  -> image summary feature table
+     -> Evidently drift report
+live-like image batch
+  -> image summary feature table
+```
+
+The monitoring scripts build deterministic reference and current feature tables
+from CIFAR-10-shaped image batches. The current batch intentionally shifts color
+and contrast statistics so the generated report has a visible monitoring signal.
+Reports are written under `outputs/monitoring/` as local artifacts.
+
 ## SRE Signals
 
 - Reproducible entrypoints for local and cloud runs.
@@ -59,4 +74,5 @@ uses the same CIFAR-10 normalization as validation.
 - Durable experiment metadata and artifact storage through MLflow, Postgres,
   and MinIO.
 - A FastAPI serving boundary for loading a checkpoint and returning predictions.
-- Planned observability through MLflow, Prometheus, Grafana, and drift reports.
+- Basic drift monitoring through generated Evidently reports.
+- Planned observability through Prometheus, Grafana, and production metrics.
