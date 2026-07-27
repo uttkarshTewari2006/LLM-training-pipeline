@@ -33,11 +33,18 @@ def create_app(model_service: ModelService | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        service.load()
+        try:
+            service.load()
+        except FileNotFoundError:
+            pass
         app.state.model_service = service
         yield
 
     app = FastAPI(title="LLM Training Pipeline Model Serving API", version="0.1.0", lifespan=lifespan)
+
+    @app.get("/live")
+    def live() -> dict[str, str]:
+        return {"status": "alive"}
 
     @app.get("/health")
     def health() -> dict[str, Any]:

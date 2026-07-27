@@ -45,10 +45,13 @@ class ModelService:
         self.model = build_model()
         self.model_epoch: int | None = None
         self.loaded = False
+        self.load_error: str | None = None
 
     def load(self) -> None:
         path = Path(self.checkpoint_path)
         if not path.exists():
+            self.loaded = False
+            self.load_error = f"Checkpoint not found: {path}"
             raise FileNotFoundError(f"Checkpoint not found: {path}")
 
         checkpoint = torch.load(path, map_location=self.device)
@@ -58,6 +61,7 @@ class ModelService:
         self.model.eval()
         self.model_epoch = checkpoint.get("epoch") if isinstance(checkpoint, dict) else None
         self.loaded = True
+        self.load_error = None
 
     def health(self) -> dict[str, Any]:
         return {
@@ -66,6 +70,7 @@ class ModelService:
             "checkpoint_path": self.checkpoint_path,
             "model_epoch": self.model_epoch,
             "device": str(self.device),
+            "load_error": self.load_error,
         }
 
     def predict(self, image: Any, top_k: int = 3) -> Prediction:

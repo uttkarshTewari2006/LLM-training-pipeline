@@ -66,6 +66,23 @@ from CIFAR-10-shaped image batches. The current batch intentionally shifts color
 and contrast statistics so the generated report has a visible monitoring signal.
 Reports are written under `outputs/monitoring/` as local artifacts.
 
+## Phase 5 Operations Flow
+
+```text
+operator
+  -> runbook commands
+     -> training smoke
+     -> serving live/health checks
+     -> prediction smoke
+     -> monitoring report smoke
+     -> repo hygiene checks
+```
+
+Phase 5 hardens the local scaffold with explicit runbooks, smoke automation, and
+health boundaries. `/live` reports that the API process is running, while
+`/health` reports whether the model checkpoint loaded and includes the checkpoint
+path, epoch, device, and load error when applicable.
+
 ## SRE Signals
 
 - Reproducible entrypoints for local and cloud runs.
@@ -75,4 +92,5 @@ Reports are written under `outputs/monitoring/` as local artifacts.
   and MinIO.
 - A FastAPI serving boundary for loading a checkpoint and returning predictions.
 - Basic drift monitoring through generated Evidently reports.
+- Operational runbooks and smoke automation for local validation.
 - Planned observability through Prometheus, Grafana, and production metrics.

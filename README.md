@@ -24,7 +24,20 @@ training to tracking, serving, and monitoring with clear local validation.
 | Phase 1 | DDP CIFAR-10 training completed with a reloadable rank-0 checkpoint. | 5 epochs, final validation accuracy `0.7515`, checkpoint `latest.pt` at `128M`. |
 | Phase 2 | MLflow captured training params, metrics, throughput, and checkpoint artifacts. | Run `fba131b9424f4855ac97b0c217eaf799`, exported DB at `mlflow-logged-runs-db/mlflow.db`. |
 | Phase 3 | FastAPI served predictions from `checkpoints/latest.pt`. | `/health` returned healthy and `/predict` returned top-3 CIFAR-10 probabilities. |
-| Phase 4 | Evidently generated a local drift report for reference vs live-like image features. | `64` reference rows, `64` current rows, `11` features, full test suite `7 passed`. |
+| Phase 4 | Evidently generated a local drift report for reference vs live-like image features. | `64` reference rows, `64` current rows, `11` features. |
+| Phase 5 | Runbooks, health boundaries, and a full local smoke path tie the platform together. | `scripts/platform_smoke.py` passed; full test suite `9 passed`. |
+
+## What This Platform Proves
+
+- Training can run locally or under `torchrun` while preserving checkpoint
+  recovery.
+- Experiment metadata and artifacts can be captured outside the training
+  process.
+- A saved checkpoint can move behind an HTTP prediction contract.
+- Monitoring artifacts can compare reference and live-like data after serving
+  starts.
+- The main workflows have concrete health checks, failure checks, and smoke
+  commands.
 
 ## Phase 1: Distributed Training
 
@@ -99,6 +112,17 @@ such as channel means, channel standard deviations, brightness, dark pixel share
 bright pixel share, and a saturation proxy. Evidently compares the reference and
 current feature tables and writes report artifacts under `outputs/monitoring/`.
 
+## Phase 5: Platform Hardening And Operations
+
+Phase 5 adds operational runbooks, serving liveness behavior, and a full local
+smoke path that checks training, checkpoint loading, prediction, and monitoring
+without requiring external data downloads.
+
+The serving API exposes `/live` for process liveness and `/health` for model
+load status. If a checkpoint is missing, the app still starts and `/health`
+reports `not_loaded` with the load error so the failure is visible through the
+API instead of only in startup logs.
+
 ## Tech Stack
 
 - Python 3.10+
@@ -108,6 +132,7 @@ current feature tables and writes report artifacts under `outputs/monitoring/`.
 - Docker Compose for local MLflow infrastructure
 - FastAPI for serving
 - Evidently AI for local drift reports
+- Pytest for smoke and API validation
 
 ## Quick Start
 
@@ -183,6 +208,7 @@ uvicorn src.serving.app:app --host 0.0.0.0 --port 8000
 Check health:
 
 ```bash
+curl http://localhost:8000/live
 curl http://localhost:8000/health
 ```
 
@@ -226,6 +252,15 @@ outputs/monitoring/drift_summary.json
 The report answers whether the current batch still resembles the reference batch
 on simple image summary statistics. It is an early warning signal for
 investigation; it does not prove that model accuracy changed.
+
+Run the full local platform smoke path:
+
+```bash
+python scripts/platform_smoke.py
+```
+
+See `docs/operations_runbook.md` for startup, validation, failure checks,
+shutdown, and repo hygiene commands.
 
 The full `image` value must be either `[32, 32, 3]` channel-last pixels or
 `[3, 32, 32]` channel-first pixels. Pixel values may be `0..1` floats or
@@ -388,6 +423,30 @@ The live-like batch intentionally changes color and contrast statistics so the
 report has a visible signal to inspect. In a real serving workflow, the current
 batch would come from recent prediction traffic or batch scoring inputs.
 
+## Phase 5 End-to-End Results
+
+The hardening pass added operational docs, a serving liveness endpoint, graceful
+model-load failure reporting, and a full local smoke script.
+
+```text
+GET /live -> status=alive
+GET /health without checkpoint -> status=not_loaded load_error="Checkpoint not found: ..."
+python scripts/platform_smoke.py -> phase5_smoke=passed
+pytest -q -> 9 passed
+```
+
+The smoke script runs a fake-data training job, verifies the checkpoint can be
+served through FastAPI's test client, sends a prediction request, and generates
+a monitoring report under `outputs/phase5-smoke/`.
+
+Representative smoke output:
+
+```text
+serving_health=healthy model_epoch=1
+monitoring_report=outputs/phase5-smoke/monitoring/drift_report.html rows=256/256
+phase5_smoke=passed
+```
+
 ## Failure Recovery
 
 Rank 0 saves the latest checkpoint after each epoch. By default the checkpoint is
@@ -424,6 +483,8 @@ has not been reset.
 - FastAPI serving exposes health and prediction endpoints for a trained
   checkpoint.
 - Evidently drift reports compare reference and live-like image feature batches.
+- Runbooks and smoke scripts cover startup, validation, failure checks, and repo
+  hygiene.
 - `.gitignore` excludes `.env`, local data, checkpoints, MLflow runs, runtime
   files, and the private learning guide.
 
@@ -435,6 +496,7 @@ has not been reset.
 |   `-- train_cifar10.yaml
 |-- docs/
 |   |-- architecture.md
+|   |-- operations_runbook.md
 |   |-- phase2_mlflow_day2.md
 |   `-- phase1_demo.md
 |-- infra/
@@ -444,6 +506,7 @@ has not been reset.
 |   `-- mlflow.db
 |-- scripts/
 |   |-- kaggle_train.sh
+|   |-- platform_smoke.py
 |   `-- smoke_predict.py
 |-- src/
 |   |-- monitoring/
@@ -461,6 +524,7 @@ has not been reset.
 |-- tests/
 |   |-- conftest.py
 |   |-- test_monitoring.py
+|   |-- test_platform_smoke_script.py
 |   `-- test_serving_api.py
 |-- .env.example
 |-- docker-compose.yml

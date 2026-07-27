@@ -34,6 +34,24 @@ def test_health_reports_loaded_checkpoint(client: TestClient, checkpoint_path: P
     assert body["model_loaded"] is True
     assert body["checkpoint_path"] == str(checkpoint_path)
     assert body["model_epoch"] == 7
+    assert body["load_error"] is None
+
+
+def test_live_reports_app_process_without_model_load(tmp_path: Path) -> None:
+    service = ModelService(checkpoint_path=str(tmp_path / "missing.pt"), device="cpu")
+    app = create_app(service)
+
+    with TestClient(app) as test_client:
+        live_response = test_client.get("/live")
+        health_response = test_client.get("/health")
+
+    assert live_response.status_code == 200
+    assert live_response.json() == {"status": "alive"}
+    assert health_response.status_code == 200
+    body = health_response.json()
+    assert body["status"] == "not_loaded"
+    assert body["model_loaded"] is False
+    assert "Checkpoint not found" in body["load_error"]
 
 
 def test_predict_returns_cifar10_prediction_shape(client: TestClient) -> None:
