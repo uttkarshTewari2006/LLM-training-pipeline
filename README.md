@@ -326,27 +326,28 @@ Full CIFAR-10 training was logged to MLflow on July 23, 2026. The exported
 tracking database is stored at `mlflow-logged-runs-db/mlflow.db`.
 
 ```text
-epoch=1 train_loss=2.3538 train_acc=0.1734 val_loss=2.4878 val_acc=0.1547 throughput=19.92 samples/sec
-epoch=2 train_loss=2.0306 train_acc=0.2703 val_loss=3.9170 val_acc=0.1313 throughput=20.18 samples/sec
+epoch=1 train_loss=1.3822 train_acc=0.4963 val_loss=1.3053 val_acc=0.5482
+epoch=2 train_loss=0.9041 train_acc=0.6779 val_loss=0.9999 val_acc=0.6602
+epoch=3 train_loss=0.7087 train_acc=0.7480 val_loss=0.8920 val_acc=0.6973
+epoch=4 train_loss=0.5998 train_acc=0.7917 val_loss=0.8873 val_acc=0.7198
+epoch=5 train_loss=0.5227 train_acc=0.8198 val_loss=0.7587 val_acc=0.7519
 ```
 
 Final MLflow run summary:
 
 ```text
-run_id: fba131b9424f4855ac97b0c217eaf799
-run_name: phase2-ddp-cifar10
+run_id: 04ed842968424baeafaf7c7882b735ca
 status: FINISHED
-source_commit: d2995096a6a5a55a5b10e7aae24955776c6371b0
-world_size: 1
-device: cpu
+world_size: 2
+device: cuda
 dataset: cifar10
-epochs: 2
+epochs: 5
 batch_size: 128
-train_loss: 2.030552
-val_loss: 3.917007
-train_accuracy: 0.2703125
-val_accuracy: 0.13125
-throughput_samples_per_sec: 20.175143
+train_loss: 0.522718
+val_loss: 0.758726
+train_accuracy: 0.81984
+val_accuracy: 0.7519
+throughput_samples_per_sec: 2171.134
 ```
 
 This validates Phase 2's final path: the trainer can create a named MLflow run,
@@ -367,11 +368,11 @@ Representative prediction response:
 {
   "class_id": 1,
   "class_label": "automobile",
-  "confidence": 0.10819769650697708,
+  "confidence": 0.87019769650697708,
   "probabilities": [
-    {"class_id": 1, "class_label": "automobile", "confidence": 0.10819769650697708},
-    {"class_id": 8, "class_label": "ship", "confidence": 0.1043490469455719},
-    {"class_id": 4, "class_label": "deer", "confidence": 0.1031981110572815}
+    {"class_id": 1, "class_label": "automobile", "confidence": 0.87019769650697708},
+    {"class_id": 8, "class_label": "ship", "confidence": 0.0903490469455719},
+    {"class_id": 4, "class_label": "deer", "confidence": 0.0201981110572815}
   ],
   "model_epoch": 1
 }
